@@ -1,0 +1,302 @@
+Step 1: Login to the Node assigned (Worker node):
+
+login as: ec2-user
+Authenticating with public key "imported-openssh-key"
+Last login: Fri Sep 29 04:19:28 2023 from 49.207.207.104
+   ,     #_
+   ~\_  ####_        Amazon Linux 2
+  ~~  \_#####\
+  ~~     \###|       AL2 End of Life is 2025-06-30.
+  ~~       \#/ ___
+   ~~       V~' '->
+    ~~~         /    A newer version of Amazon Linux is available!
+      ~~._.   _/
+         _/ _/       Amazon Linux 2023, GA and supported until 2028-03-15.
+       _/m/'           https://aws.amazon.com/linux/amazon-linux-2023/
+
+[ec2-user@ip-172-31-36-78 ~]$ sudo su -
+Last login: Fri Sep 29 04:19:31 UTC 2023 on pts/0
+
+Step 2: Delete all existing kubernetes related services:
+
+[root@ip-172-31-36-78 ~]# kubectl delete all --all
+pod "kubia-0" deleted
+pod "kubia-1" deleted
+pod "kubia-2" deleted
+pod "kubia-3" deleted
+statefulset.apps "kubia" deleted
+
+[root@ip-172-31-36-78 ~]#
+[root@ip-172-31-36-78 ~]# kubectl get pods
+No resources found in test namespace.
+[root@ip-172-31-36-78 ~]# kubectl get pods -A
+NAMESPACE     NAME                                                                     READY   STATUS    RESTARTS   AGE
+default       kubia-manual                                                             1/1     Running   0          5d3h
+default       kubia-manual-v2                                                          1/1     Running   0          5d3h
+kube-system   calico-etcd-s4mtc                                                        1/1     Running   0          8d
+kube-system   calico-kube-controllers-7997dc8d7b-469f6                                 1/1     Running   0          8d
+kube-system   calico-node-hd9gj                                                        2/2     Running   2          8d
+kube-system   calico-node-xt7qz                                                        2/2     Running   2          8d
+kube-system   coredns-66bff467f8-j8wdb                                                 1/1     Running   0          8d
+kube-system   coredns-66bff467f8-tm77n                                                 1/1     Running   0          8d
+kube-system   etcd-ip-172-31-32-5.ap-southeast-1.compute.internal                      1/1     Running   0          8d
+kube-system   kube-apiserver-ip-172-31-32-5.ap-southeast-1.compute.internal            1/1     Running   0          8d
+kube-system   kube-controller-manager-ip-172-31-32-5.ap-southeast-1.compute.internal   1/1     Running   0          8d
+kube-system   kube-proxy-2pxzl                                                         1/1     Running   0          8d
+kube-system   kube-proxy-qv46w                                                         1/1     Running   0          8d
+kube-system   kube-scheduler-ip-172-31-32-5.ap-southeast-1.compute.internal            1/1     Running   0          8d
+ssd-monitor   ssd-monitor-pz95w                                                        1/1     Running   0          4d4h
+[root@ip-172-31-36-78 ~]#
+
+Step 3 : Clone the Voting app from github:
+
+[root@ip-172-31-36-78 ~]# git clone https://github.com/ashishrpandey/example-vot
+Cloning into 'example-voting-app'...
+remote: Enumerating objects: 494, done.
+remote: Total 494 (delta 0), reused 0 (delta 0), pack-reused 494
+Receiving objects: 100% (494/494), 236.19 KiB | 11.81 MiB/s, done.
+Resolving deltas: 100% (179/179), done.
+[root@ip-172-31-36-78 ~]# 
+[root@ip-172-31-36-78 ~]# cd /root/example-voting-app/
+[root@ip-172-31-36-78 example-voting-app]# ls
+architecture.png               docker-compose.yml  MAINTAINERS  worker
+dockercloud.yml                docker-stack.yml    README.md
+docker-compose-javaworker.yml  k8s-specifications  result
+docker-compose-simple.yml      LICENSE             vote
+[root@ip-172-31-36-78 example-voting-app]# vi k8s-specifications
+[root@ip-172-31-36-78 example-voting-app]# cd k8s-specifications/
+[root@ip-172-31-36-78 k8s-specifications]# kubectl apply -f .^C
+[root@ip-172-31-36-78 k8s-specifications]# ls
+db-deployment.yaml     redis-service.yaml      vote-deployment.yaml
+db-service.yaml        result-deployment.yaml  vote-service.yaml
+redis-deployment.yaml  result-service.yaml     worker-deployment.yaml
+
+
+Step 4: Make changes to port numbers for Result and voting app, because this is a worker node:
+[root@ip-172-31-36-78 k8s-specifications]# vi result-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: result
+spec:
+  type: NodePort
+  ports:
+  - name: "result-service"
+    port: 5001
+    targetPort: 80
+    nodePort: 31003
+  selector:
+    app: result
+
+
+[root@ip-172-31-36-78 k8s-specifications]# vi vote-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: vote
+spec:
+  type: NodePort
+  ports:
+  - name: "vote-service"
+    port: 5000
+    targetPort: 80
+    nodePort: 31002
+  selector:
+    app: vote
+
+Step 5: Apply all the yaml files to create pods for redis, db, result and voting pod:
+[root@ip-172-31-36-78 k8s-specifications]# kubectl apply -f .
+deployment.apps/db created
+service/db created
+deployment.apps/redis created
+service/redis created
+deployment.apps/result created
+service/result created
+deployment.apps/vote created
+service/vote created
+deployment.apps/worker created
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get pods
+NAME                      READY   STATUS              RESTARTS   AGE
+db-b54cd94f4-m5crb        1/1     Running             0          6s
+redis-868d64d78-hkdcm     1/1     Running             0          6s
+result-5d57b59f4b-v48xs   1/1     Running             0          6s
+vote-94849dc97-bczgv      1/1     Running             0          6s
+worker-dd46d7584-dzhk2    0/1     ContainerCreating   0          6s
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-m5crb        1/1     Running   0          10s
+redis-868d64d78-hkdcm     1/1     Running   0          10s
+result-5d57b59f4b-v48xs   1/1     Running   0          10s
+vote-94849dc97-bczgv      1/1     Running   0          10s
+worker-dd46d7584-dzhk2    1/1     Running   0          10s
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get all
+NAME                          READY   STATUS    RESTARTS   AGE
+pod/db-b54cd94f4-m5crb        1/1     Running   0          43s
+pod/redis-868d64d78-hkdcm     1/1     Running   0          43s
+pod/result-5d57b59f4b-v48xs   1/1     Running   0          43s
+pod/vote-94849dc97-bczgv      1/1     Running   0          43s
+pod/worker-dd46d7584-dzhk2    1/1     Running   0          43s
+
+NAME             TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+service/db       ClusterIP   10.108.23.165    <none>        5432/TCP         43s
+service/redis    ClusterIP   10.99.98.251     <none>        6379/TCP         43s
+service/result   NodePort    10.106.164.235   <none>        5001:31003/TCP   43s
+service/vote     NodePort    10.105.116.134   <none>        5000:31002/TCP   43s
+
+NAME                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/db       1/1     1            1           43s
+deployment.apps/redis    1/1     1            1           43s
+deployment.apps/result   1/1     1            1           43s
+deployment.apps/vote     1/1     1            1           43s
+deployment.apps/worker   1/1     1            1           43s
+
+NAME                                DESIRED   CURRENT   READY   AGE
+replicaset.apps/db-b54cd94f4        1         1         1       43s
+replicaset.apps/redis-868d64d78     1         1         1       43s
+replicaset.apps/result-5d57b59f4b   1         1         1       43s
+replicaset.apps/vote-94849dc97      1         1         1       43s
+replicaset.apps/worker-dd46d7584    1         1         1       43s
+[root@ip-172-31-36-78 k8s-specifications]#
+
+Step 6: Open the following in browser
+
+Voting app: http://54.255.129.110:31002/
+Results app: http://54.255.129.110:31003/
+
+
+Tests done:
+============
+
+Test 1: Delete the vote pod
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-m5crb        1/1     Running   0          37m
+redis-868d64d78-hkdcm     1/1     Running   0          37m
+result-5d57b59f4b-v48xs   1/1     Running   0          37m
+vote-94849dc97-mjsfb      1/1     Running   0          20s
+worker-dd46d7584-dzhk2    1/1     Running   0          37m
+
+Processed by container ID vote-94849dc97-mjsfb 
+
+[root@ip-172-31-36-78 k8s-specifications]# kubectl delete pod vote-94849dc97-mjsfb
+pod "vote-94849dc97-mjsfb" deleted
+[root@ip-172-31-36-78 k8s-specifications]#
+
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-m5crb        1/1     Running   0          38m
+redis-868d64d78-hkdcm     1/1     Running   0          38m
+result-5d57b59f4b-v48xs   1/1     Running   0          38m
+vote-94849dc97-bpxdm      1/1     Running   0          53s
+worker-dd46d7584-dzhk2    1/1     Running   0          38m
+[root@ip-172-31-36-78 k8s-specifications]#
+
+Processed by container ID vote-94849dc97-bpxdm
+
+Observation: Even after deleting the pod, the results are upto date, no change in front end and in linux because RS created a new pod.
+
+Test 2: Delete the worker pod
+
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-m5crb        1/1     Running   0          38m
+redis-868d64d78-hkdcm     1/1     Running   0          38m
+result-5d57b59f4b-v48xs   1/1     Running   0          38m
+vote-94849dc97-bpxdm      1/1     Running   0          53s
+worker-dd46d7584-dzhk2    1/1     Running   0          38m
+[root@ip-172-31-36-78 k8s-specifications]# kubectl delete pod worker-dd46d7584-dzhk2
+pod "worker-dd46d7584-dzhk2" deleted
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-m5crb        1/1     Running   0          41m
+redis-868d64d78-hkdcm     1/1     Running   0          41m
+result-5d57b59f4b-v48xs   1/1     Running   0          41m
+vote-94849dc97-bpxdm      1/1     Running   0          3m15s
+worker-dd46d7584-np5rp    1/1     Running   0          24s
+[root@ip-172-31-36-78 k8s-specifications]#
+
+[root@ip-172-31-36-78 k8s-specifications]# docker ps
+CONTAINER ID   IMAGE                                   COMMAND                  CREATED              STATUS              PORTS     NAMES
+4a42e21d0dcb   dockersamples/examplevotingapp_worker   "dotnet Worker.dll"      About a minute ago   Up About a minute             k8s_worker_worker-dd46d7584-np5rp_test_86fe48ef-89c6-4114-bddc-030cb8317f0b_0
+47b30e52d0b8   k8s.gcr.io/pause:3.2                    "/pause"                 About a minute ago   Up About a minute             k8s_POD_worker-dd46d7584-np5rp_test_86fe48ef-89c6-4114-bddc-030cb8317f0b_0
+4d79d847d6c6   04e406d349f5                            "gunicorn app:app -b…"   4 minutes ago        Up 4 minutes                  k8s_vote_vote-94849dc97-bpxdm_test_dfd0c499-c524-4278-b1e1-121c77139f4f_0
+cd80daf1f859   k8s.gcr.io/pause:3.2                    "/pause"                 4 minutes ago        Up 4 minutes                  k8s_POD_vote-94849dc97-bpxdm_test_dfd0c499-c524-4278-b1e1-121c77139f4f_0
+
+Docker containers are created newly for the worker pod
+
+
+No change in results, the past results are still maintained
+
+Test 3: Delete the DB pod
+
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-7pmfq        1/1     Running   0          2m5s
+redis-868d64d78-hkdcm     1/1     Running   0          45m
+result-5d57b59f4b-v48xs   1/1     Running   1          45m
+vote-94849dc97-bpxdm      1/1     Running   0          7m50s
+worker-dd46d7584-np5rp    1/1     Running   1          4m59s
+[root@ip-172-31-36-78 k8s-specifications]# kubectl delete pod db-b54cd94f4-7pmfq
+pod "db-b54cd94f4-7pmfq" deleted
+[root@ip-172-31-36-78 k8s-specifications]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-sczg6        1/1     Running   0          92s
+redis-868d64d78-hkdcm     1/1     Running   0          47m
+result-5d57b59f4b-v48xs   1/1     Running   2          47m
+vote-94849dc97-bpxdm      1/1     Running   0          9m30s
+worker-dd46d7584-np5rp    1/1     Running   2          6m39s
+[root@ip-172-31-36-78 k8s-specifications]#
+
+After deleting DB pod, the old results are also deleted, but the moment new voting is done, those votes started reflecting.
+
+
+
+[root@ip-172-31-36-78 ~]# docker ps
+CONTAINER ID   IMAGE                                   COMMAND                  CREATED             STATUS             PORTS     NAMES
+f39fcab7c246   dockersamples/examplevotingapp_worker   "dotnet Worker.dll"      About an hour ago   Up About an hour             k8s_worker_worker-dd46d7584-np5rp_test_86fe48ef-89c6-4114-bddc-030cb8317f0b_2
+001002b13d19   6ce23a8ce243                            "/usr/bin/tini -- no…"   About an hour ago   Up About an hour             k8s_result_result-5d57b59f4b-v48xs_test_dbc6a0fe-94fa-41f8-881d-57ae38e7049f_2
+2898f05d5fda   c230b2f564da                            "docker-entrypoint.s…"   About an hour ago   Up About an hour             k8s_db_db-b54cd94f4-sczg6_test_9ab4b60c-bef3-4c82-8fe5-f6fa520b611a_0
+abdf46f3c51b   k8s.gcr.io/pause:3.2                    "/pause"                 About an hour ago   Up About an hour             k8s_POD_db-b54cd94f4-sczg6_test_9ab4b60c-bef3-4c82-8fe5-f6fa520b611a_0
+47b30e52d0b8   k8s.gcr.io/pause:3.2                    "/pause"                 About an hour ago   Up About an hour             k8s_POD_worker-dd46d7584-np5rp_test_86fe48ef-89c6-4114-bddc-030cb8317f0b_0
+4d79d847d6c6   04e406d349f5                            "gunicorn app:app -b…"   About an hour ago   Up About an hour             k8s_vote_vote-94849dc97-bpxdm_test_dfd0c499-c524-4278-b1e1-121c77139f4f_0
+cd80daf1f859   k8s.gcr.io/pause:3.2                    "/pause"                 About an hour ago   Up About an hour             k8s_POD_vote-94849dc97-bpxdm_test_dfd0c499-c524-4278-b1e1-121c77139f4f_0
+ecad0a0cab54   4e69f18a4aed  
+
+
+[root@ip-172-31-36-78 ~]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-sczg6        1/1     Running   0          75m
+redis-868d64d78-hkdcm     1/1     Running   0          121m
+result-5d57b59f4b-v48xs   1/1     Running   2          121m
+vote-94849dc97-bpxdm      1/1     Running   0          83m
+worker-dd46d7584-np5rp    1/1     Running   2          80m
+[root@ip-172-31-36-78 ~]# kubectl delete pod db-b54cd94f4-sczg6
+pod "db-b54cd94f4-sczg6" deleted
+
+
+[root@ip-172-31-36-78 ~]#
+[root@ip-172-31-36-78 ~]#
+[root@ip-172-31-36-78 ~]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+db-b54cd94f4-dl9lw        1/1     Running   0          87s
+redis-868d64d78-hkdcm     1/1     Running   0          122m
+result-5d57b59f4b-v48xs   1/1     Running   3          122m
+vote-94849dc97-bpxdm      1/1     Running   0          84m
+worker-dd46d7584-np5rp    1/1     Running   3          82m
+[root@ip-172-31-36-78 ~]#
+
+
+[root@ip-172-31-36-78 ~]# docker ps
+CONTAINER ID   IMAGE                                   COMMAND                  CREATED              STATUS              PORTS     NAMES
+8e787c20de5a   dockersamples/examplevotingapp_worker   "dotnet Worker.dll"      About a minute ago   Up About a minute             k8s_worker_worker-dd46d7584-np5rp_test_86fe48ef-89c6-4114-bddc-030cb8317f0b_3
+7318f849da54   6ce23a8ce243                            "/usr/bin/tini -- no…"   About a minute ago   Up About a minute             k8s_result_result-5d57b59f4b-v48xs_test_dbc6a0fe-94fa-41f8-881d-57ae38e7049f_3
+8cda78dad5ac   c230b2f564da                            "docker-entrypoint.s…"   About a minute ago   Up About a minute             k8s_db_db-b54cd94f4-dl9lw_test_a189d74c-aa07-4cd5-974f-ee98752c56dc_0
+2bb71c6f11a2   k8s.gcr.io/pause:3.2                    "/pause"                 About a minute ago   Up About a minute             k8s_POD_db-b54cd94f4-dl9lw_test_a189d74c-aa07-4cd5-974f-ee98752c56dc_0
+47b30e52d0b8   k8s.gcr.io/pause:3.2                    "/pause"                 About an hour ago    Up About an hour              k8s_POD_worker-dd46d7584-np5rp_test_86fe48ef-89c6-4114-bddc-030cb8317f0b_0
+4d79d847d6c6   04e406d349f5                            "gunicorn app:app -b…"   About an hour ago    Up About an hour              k8s_vote_vote-94849dc97-bpxdm_test_dfd0c499-c524-4278-b1e1-121c77139f4f_0
+cd80daf1f859   k8s.gcr.io/pause:3.2                    "/pause"                 About an hour ago    Up About an hour              k8s_POD_vote-94849dc97-bpxdm_test_dfd0c499-c524-4278-b1e1-121c77139f4f_0
+
+
+
+Also, after deleting DB pod, Worker container is deleted and recreated again
+
